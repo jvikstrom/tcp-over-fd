@@ -11,35 +11,12 @@
 
 static int finished = 0;
 
-/* gets called when the ping receives a reply, or encounters a problem */
-void cb_ping(struct pico_icmp4_stats *s)
-{
-    char host[30];
-    pico_ipv4_to_string(host, s->dst.addr);
-    if (s->err == 0) {
-        /* if all is well, print some pretty info */
-        printf("%lu bytes from %s: icmp_req=%lu ttl=%lu time=%lu ms\n", s->size,
-                host, s->seq, s->ttl, (long unsigned int)s->time);
-        if (s->seq >= NUM_PING)
-            finished = 1;
-    } else {
-        /* if something went wrong, print it and signal we want to stop */
-        printf("PING %lu to %s: Error %d\n", s->seq, host, s->err);
-        finished = 1;
-    }
-}
-
 FILE* driverInput;
 FILE* driverOutput;
-/*
-    Device driver site: https://github.com/tass-belgium/picotcp/wiki/Device-Drivers
-    Example device driver: https://github.com/tass-belgium/picotcp/wiki/Example-device-driver
-    Pico example: https://github.com/tass-belgium/picotcp/wiki/Examples
-    EOF checking: https://www.geeksforgeeks.org/eof-and-feof-in-c/
-*/
 static int pico_eth_send(struct pico_device *dev, void *buf, int len) {
     printf(">> pico_eth_send to: %i\n  ", len);
-    fwrite(&len, sizeof(int), 1, driverOutput);
+    uint32_t len32 = len;
+    fwrite(&len32, sizeof(int32_t), 1, driverOutput);
     fwrite(buf, sizeof(void), len, driverOutput);
     fflush(driverOutput);
     return len;
@@ -50,11 +27,9 @@ static uint8_t pollBufferUint8[BUF_SIZE];
 
 static int pico_eth_poll(struct pico_device *dev, int loop_score){
     while (loop_score > 0) {
-//        printf("POLL\n");
-        int len = 0;
-        int nread = fread(&len, sizeof(int), 1, driverInput);
+        uint32_t len = 0;
+        int nread = fread(&len, sizeof(len), 1, driverInput);
         if(!nread) {
-//            printf("  EOF!\n");
             break;
         }
         fread(&pollBuffer, sizeof(void), len, driverInput);
@@ -62,7 +37,7 @@ static int pico_eth_poll(struct pico_device *dev, int loop_score){
             pollBufferUint8[i] = pollBuffer[i];
         }
         printf(">> pico_eth_poll: %i\n", len);
-        pico_stack_recv(dev, pollBufferUint8, (uint32_t)len); /* this will copy the frame into the stack */
+        pico_stack_recv(dev, pollBufferUint8, len); /* this will copy the frame into the stack */
         loop_score--;
     }
 
@@ -381,33 +356,6 @@ int main(int argc, char* argv[]){
         pico_stack_tick();
         usleep(2000);
     }
-
-
-    /* assign the IP address to the tap interface */
-/*    char* pingTo = secondary ? "192.168.5.4" : "192.168.5.5";
-    const char* thisIP = secondary ? "192.168.5.5" : "192.168.5.4";
-    pico_string_to_ipv4(thisIP, &ipaddr.addr);
-    pico_string_to_ipv4("255.255.255.0", &netmask.addr);
-    pico_ipv4_link_add(dev, ipaddr, netmask);
-
-    if(!secondary) {
-        printf("starting ping\n");
-        id = pico_icmp4_ping(pingTo, NUM_PING, 1000, 10000, 64, cb_ping);
-    }
-
-    if (id == -1)
-        return -1;
-*/
-    /* keep running stack ticks to have picoTCP do its network magic. Note that
-     * you can do other stuff here as well, or sleep a little. This will impact
-     * your network performance, but everything should keep working (provided
-     * you don't go overboard with the delays). */
-/*    while (finished != 1)
-    {
-        usleep(1000);
-        pico_stack_tick();
-    }
-*/
     printf("finished !\n");
     return 0;
 }
