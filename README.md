@@ -1,5 +1,5 @@
 # tcp-over-fd
-Uses files to create TCP connections.
+Starts a TCP stack using files to do the packet sending/receiving.
 The file format is: `lenght of packet (uint32) - IP packet` in binary for every packet sent.
 
 # Build:
