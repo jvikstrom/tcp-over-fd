@@ -14,4 +14,6 @@ int send_tcpecho(struct pico_socket *s);
 
 void cb_tcpecho(uint16_t ev, struct pico_socket *s);
 
+int start_server(struct pico_socket* s, uint16_t *listen_port);
+
 #endif

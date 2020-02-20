@@ -96,4 +96,21 @@ void cb_tcpclient(uint16_t ev, struct pico_socket *s)
     }
 }
 
+int connect_client(struct pico_socket *s, struct pico_ip4* remote, uint16_t remote_port, uint16_t *listen_port) {
+    s = pico_socket_open(PICO_PROTO_IPV4, PICO_PROTO_TCP, &cb_tcpclient);
+    struct pico_ip4 inaddr = {0};
+    int ret = pico_socket_bind(s, &inaddr, listen_port);
+    if (ret < 0) {
+        printf("%s: error binding socket to port %u: %s\n", __FUNCTION__, short_be(*listen_port), strerror(pico_err));
+        return ret;
+    }
+
+    ret = pico_socket_connect(s, remote, remote_port);
+    if (ret != 0) {
+        printf("%s: error connecting to port %u\n", __FUNCTION__, short_be(remote_port));
+        return ret;
+    }
+    return ret;
+}
+
 #undef TCPSIZ

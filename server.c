@@ -115,3 +115,19 @@ void cb_tcpecho(uint16_t ev, struct pico_socket *s) {
             flag &= (~PICO_SOCK_EV_WR);
     }
 }
+
+int start_server(struct pico_socket* s, uint16_t *listen_port) {
+    s = pico_socket_open(PICO_PROTO_IPV4, PICO_PROTO_TCP, &cb_tcpecho);
+    struct pico_ip4 inaddr = {0};
+    int ret = pico_socket_bind(s, &inaddr, listen_port);
+    if (ret < 0) {
+        printf("%s: error binding socket to port %u: %s\n", __FUNCTION__, short_be(*listen_port), strerror(pico_err));
+        return ret;
+    }
+    ret = pico_socket_listen(s, 40);
+    if(ret != 0) {
+        printf("%s: error listening on port %u\n", __FUNCTION__, short_be(*listen_port));
+        return ret;
+    }
+    return ret;
+}

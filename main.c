@@ -15,7 +15,7 @@ static int finished = 0;
 FILE* driverInput;
 FILE* driverOutput;
 static int pico_eth_send(struct pico_device *dev, void *buf, int len) {
-    printf(">> pico_eth_send to: %i\n  ", len);
+    printf(">> pico_eth_send: %i\n", len);
     uint32_t len32 = len;
     fwrite(&len32, sizeof(int32_t), 1, driverOutput);
     fwrite(buf, sizeof(void), len, driverOutput);
@@ -68,12 +68,6 @@ struct pico_device *pico_eth_create(const char *name, const uint8_t *mac, FILE* 
     return eth_dev;
 }
 
-/**
- * 
- * Client
- * 
- * **/
-
 int main(int argc, char* argv[]){
     if(argc != 4) {
         printf("Expects at least 3 arguments: 'executable in-file out-file'\n");
@@ -107,36 +101,29 @@ int main(int argc, char* argv[]){
     if (!dev)
         return -1;
 
-    char* remoteAddr = server ? "192.168.5.4" : "192.168.5.5";
+    //char* remoteAddr = server ? "192.168.5.4" : "192.168.5.5";
+    char* remoteAddr = "192.168.5.5";
     const char* thisAddr = server ? "192.168.5.5" : "192.168.5.4";
     uint16_t listen_port = server ? 1234 : 1235;
-    uint16_t send_port = 1234;
+    uint16_t remote_port = 1234;
     pico_string_to_ipv4(thisAddr, &ipaddr.addr);
     pico_string_to_ipv4(remoteAddr, &ipremote.addr);
     pico_string_to_ipv4("255.255.255.0", &netmask.addr);
     pico_ipv4_link_add(dev, ipaddr, netmask);
 
-    struct pico_socket *s;
+    struct pico_socket s;
     struct pico_ip4 inaddr = {0};
-    
-    s = server ? pico_socket_open(PICO_PROTO_IPV4, PICO_PROTO_TCP, &cb_tcpecho) : pico_socket_open(PICO_PROTO_IPV4, PICO_PROTO_TCP, &cb_tcpclient);
-
-    int ret = pico_socket_bind(s, &inaddr, &listen_port);
-    if (ret < 0) {
-        printf("%s: error binding socket to port %u: %s\n", __FUNCTION__, short_be(listen_port), strerror(pico_err));
-        return -1;
-    }
-
+    int ret;
     if(server) {
-        if (pico_socket_listen(s, 40) != 0) {
-            printf("%s: error listening on port %u\n", __FUNCTION__, short_be(listen_port));
-            return -1;
-        }
+        printf("Starting server on port: %i\n", listen_port);
+        ret = start_server(&s, &listen_port);
     } else {
-        if(pico_socket_connect(s, &ipremote, send_port) != 0) {
-            printf("%s: error connecting to port %u\n", __FUNCTION__, short_be(send_port));
-            return -1;
-        }
+        printf("Starting client and connecting to %s:%i\n", remoteAddr, remote_port);
+        ret = connect_client(&s, &ipremote, remote_port, &listen_port);
+    }
+    if (ret < 0) {
+        printf("Error starting server or client...\n");
+        return -1;
     }
 
     while(1) {
