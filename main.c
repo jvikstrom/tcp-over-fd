@@ -5,6 +5,7 @@
 #include <pico_icmp4.h>
 #include <pico_dev_tap.h>
 #include <pico_socket.h>
+#include <unistd.h>  
 #include "server.h"
 #include "client.h"
 
@@ -69,15 +70,47 @@ struct pico_device *pico_eth_create(const char *name, const uint8_t *mac, FILE* 
 }
 
 int main(int argc, char* argv[]){
-    if(argc != 4) {
+    /*if(argc != 4) {
         printf("Expects at least 3 arguments: 'executable in-file out-file'\n");
         return -1;
+    }*/
+    char *inputFname = NULL;
+    char *outputFname = NULL;
+    char *thisIP = NULL;
+    char *remoteIP = NULL;
+    int opt;
+    while((opt = getopt(argc, argv, ":t:r:hi:o:" )) != -1){
+        switch(opt) {
+            case 'i':
+                inputFname = optarg;
+                break;
+            case 'o':
+                outputFname = optarg;
+                break;
+            case 't':
+                thisIP = optarg;
+                break;
+            case 'r':
+                remoteIP = optarg;
+                break;
+            case 'h':
+                printf("-i: the input file name\n-o: the output file name\n-t: the ip this node will use\n-r: the ip the remote node has (will start this node as a client)\n");
+                return 0;
+            case ':':
+                printf("COLON??\n");
+            case '?':
+                printf("QUESTIONMARK?? %i\n", optopt);
+
+        }
     }
-    const char *inputFname = argv[1];
-    const char *outputFname = argv[2];
-    const char* mode = argv[3];
-    int server = mode[0] == '1';
-    printf("mode: %s, mode[0]: %c, secondary: %i\n", mode, mode[0], server);
+
+    if(!inputFname || !outputFname || !thisIP) {
+        printf("Must set -t, -i and -o\n");
+        return -1;
+    }
+
+    printf("Starting with input file: %s, output file: %s, ip: %s, remote: %s\n", inputFname, outputFname, thisIP, remoteIP);
+    int server = !remoteIP;
 
     int id;
     struct pico_ip4 ipaddr, netmask, ipremote;
@@ -102,12 +135,10 @@ int main(int argc, char* argv[]){
         return -1;
 
     //char* remoteAddr = server ? "192.168.5.4" : "192.168.5.5";
-    char* remoteAddr = "192.168.5.5";
-    const char* thisAddr = server ? "192.168.5.5" : "192.168.5.4";
     uint16_t listen_port = server ? 1234 : 1235;
     uint16_t remote_port = 1234;
-    pico_string_to_ipv4(thisAddr, &ipaddr.addr);
-    pico_string_to_ipv4(remoteAddr, &ipremote.addr);
+    pico_string_to_ipv4(thisIP, &ipaddr.addr);
+    pico_string_to_ipv4(remoteIP, &ipremote.addr);
     pico_string_to_ipv4("255.255.255.0", &netmask.addr);
     pico_ipv4_link_add(dev, ipaddr, netmask);
 
@@ -118,7 +149,7 @@ int main(int argc, char* argv[]){
         printf("Starting server on port: %i\n", listen_port);
         ret = start_server(&s, &listen_port);
     } else {
-        printf("Starting client and connecting to %s:%i\n", remoteAddr, remote_port);
+        printf("Starting client and connecting to %s:%i\n", remoteIP, remote_port);
         ret = connect_client(&s, &ipremote, remote_port, &listen_port);
     }
     if (ret < 0) {
