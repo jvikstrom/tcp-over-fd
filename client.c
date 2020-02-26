@@ -20,9 +20,11 @@ void compare_results(pico_time __attribute__((unused)) now, void __attribute__((
 
 }
 
-static char *buffer1;
-static char *buffer0;
-#define TCPSIZ (1024 * 1024 * 5)
+static char *buffer1[1024];
+static char *buffer0 = "savdejsidjwiefalsjfk";
+//#define TCPSIZ (1024 * 1024 * 5)
+#define TCPSIZ (10)
+//#define INFINITE_TCPTEST
 
 void cb_tcpclient(uint16_t ev, struct pico_socket *s)
 {
@@ -43,8 +45,10 @@ void cb_tcpclient(uint16_t ev, struct pico_socket *s)
                 printf("SOCKET READ - %d\n", r_size);
             }
 
-            if (r < 0)
+            if (r < 0) {
+                printf("!!EXIT!! PICO_SOCK_EV_RD: %d\n", r);
                 exit(5);
+            }
         } while(r > 0);
     }
 

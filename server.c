@@ -55,22 +55,17 @@ void cb_tcpecho(uint16_t ev, struct pico_socket *s) {
         }
         if (flag & PICO_SOCK_EV_WR) {
             flag &= ~PICO_SOCK_EV_WR;
-            send_tcpecho(s);
+            int written = send_tcpecho(s);
+            printf("send_tcpecho(1): %d\n", written);
         }
     }
 
     if (ev & PICO_SOCK_EV_CONN) {
         uint32_t ka_val = 0;
-        struct pico_socket *sock_a = {
-            0
-        };
-        struct pico_ip4 orig = {
-            0
-        };
+        struct pico_socket *sock_a = {0};
+        struct pico_ip4 orig = {0};
         uint16_t port = 0;
-        char peer[30] = {
-            0
-        };
+        char peer[30] = {0};
         int yes = 1;
 
         sock_a = pico_socket_accept(s, &orig, &port);
@@ -109,6 +104,7 @@ void cb_tcpecho(uint16_t ev, struct pico_socket *s) {
 
     if (ev & PICO_SOCK_EV_WR) {
         r = send_tcpecho(s);
+        printf("send_tcpecho(2): %d\n",r);
         if (r == 0)
             flag |= PICO_SOCK_EV_WR;
         else
