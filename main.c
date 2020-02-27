@@ -11,16 +11,66 @@
 
 #define BUF_SIZE 100000
 
+typedef struct pcap_hdr_s {
+    uint32_t magic_number;   /* magic number */
+    uint16_t version_major;  /* major version number */
+    uint16_t version_minor;  /* minor version number */
+    int32_t  thiszone;       /* GMT to local correction */
+    uint32_t sigfigs;        /* accuracy of timestamps */
+    uint32_t snaplen;        /* max length of captured packets, in octets */
+    uint32_t network;        /* data link type */
+} pcap_hdr_t;
+
+void writePCAPHeader(FILE * f) {
+    pcap_hdr_t hdr;
+    hdr.magic_number = 0xa1b2c3d4;
+    hdr.version_major = 2;
+    hdr.version_minor = 4;
+    hdr.thiszone = 0;
+    hdr.sigfigs = 0;
+    hdr.snaplen = 65535;
+    hdr.network = 101; // LINKTYPE_RAW;; There is also LINKTYPE_IPV4/LINKTYPE_IPV6,.
+
+    fwrite(&hdr.magic_number, sizeof(hdr.magic_number), 1, f);
+    fwrite(&hdr.version_major, sizeof(hdr.version_major), 1, f);
+    fwrite(&hdr.version_minor, sizeof(hdr.version_minor), 1, f);
+    fwrite(&hdr.thiszone, sizeof(hdr.thiszone), 1, f);
+    fwrite(&hdr.sigfigs, sizeof(hdr.sigfigs), 1, f);
+    fwrite(&hdr.snaplen, sizeof(hdr.snaplen), 1, f);
+    fwrite(&hdr.network, sizeof(hdr.network), 1, f);
+    fflush(f);
+}
+
 static int finished = 0;
+
+typedef struct pcaprec_hdr_s {
+    uint32_t ts_sec;         /* timestamp seconds */
+    uint32_t ts_usec;        /* timestamp microseconds */
+    uint32_t incl_len;       /* number of octets of packet saved in file */
+    uint32_t orig_len;       /* actual length of packet */
+} pcaprec_hdr_t;
 
 FILE* driverInput;
 FILE* driverOutput;
+FILE* driverOutputPCAP; // Writes all packets in PCAP format.
+int seqClock = 0;
 static int pico_eth_send(struct pico_device *dev, void *buf, int len) {
     printf(">> pico_eth_send: %i\n", len);
     uint32_t len32 = len;
     fwrite(&len32, sizeof(int32_t), 1, driverOutput);
     fwrite(buf, sizeof(void), len, driverOutput);
     fflush(driverOutput);
+
+    // Write the PCAP.
+    pcaprec_hdr_t hdr;
+    hdr.ts_sec = clock();
+    hdr.ts_usec = seqClock++; // FIXME: Fix the timestamps.
+    hdr.incl_len = len;
+    hdr.orig_len = len; // FIXME: Should this be different?
+    fwrite(&hdr, sizeof(hdr), 1, driverOutputPCAP);
+    fwrite(buf, sizeof(void), len, driverOutputPCAP);
+    fflush(driverOutputPCAP);
+
     return len;
 }
 
@@ -117,8 +167,20 @@ int main(int argc, char* argv[]){
     struct pico_device* dev;
     pico_stack_init();
 
+    char outputFB[1024];
+    int outputLen = strlen(outputFname);
+    for(int i = 0; i < outputLen; ++i) {
+        outputFB[i] = outputFname[i];
+    }
+    for(int i = 0; i < 5; i++) {
+        outputFB[i + outputLen] = ".pcap"[i];
+    }
+    outputFB[outputLen+5] = '\0';
+
     FILE* input = fopen(inputFname, "ab+"); // The file we read from.
     FILE* output = fopen(outputFname, "ab+"); // The file we write to.
+    FILE* outputPCAP = fopen(outputFB, "ab+"); // The file we write to.
+    
     if(input == NULL) {
         printf("Input file could not be opened!\n");
         return -1;
@@ -127,6 +189,12 @@ int main(int argc, char* argv[]){
         printf("Output file could not be opened!\n");
         return -1;
     }
+    if(outputPCAP == NULL) {
+        printf("Output PCAP file could not be opened!\n");
+        return -1;
+    }
+    driverOutputPCAP = outputPCAP; // FIXME: Move this assignment to pico_eth_create...
+    writePCAPHeader(driverOutputPCAP);    
 
     /* create the device */
     uint8_t mac = 1 + server;
