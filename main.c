@@ -41,6 +41,35 @@ void writePCAPHeader(FILE * f) {
     fflush(f);
 }
 
+// Assumes that the magic number has already been read.
+void consumePCAPHeader(FILE *f) {
+    pcap_hdr_t hdr;
+    int nread = fread(&hdr.version_major, sizeof(hdr.version_major), 1, f);
+    if(nread <= 0) {
+        exit(-1);
+    }
+    nread = fread(&hdr.version_minor, sizeof(hdr.version_minor), 1, f);
+    if(nread <= 0) {
+        exit(-1);
+    }
+    nread = fread(&hdr.thiszone, sizeof(hdr.thiszone), 1, f);
+    if(nread <= 0) {
+        exit(-1);
+    }
+    nread = fread(&hdr.sigfigs, sizeof(hdr.sigfigs), 1, f);
+    if(nread <= 0) {
+        exit(-1);
+    }
+    nread = fread(&hdr.snaplen, sizeof(hdr.snaplen), 1, f);
+    if(nread <= 0) {
+        exit(-1);
+    }
+    nread = fread(&hdr.network, sizeof(hdr.network), 1, f);
+    if(nread <= 0) {
+        exit(-1);
+    }
+}
+
 static int finished = 0;
 
 typedef struct pcaprec_hdr_s {
@@ -51,31 +80,43 @@ typedef struct pcaprec_hdr_s {
 } pcaprec_hdr_t;
 
 FILE* driverInput;
+uint32_t consumedPCAP = 0;
 FILE* driverOutput;
-FILE* driverOutputPCAP; // Writes all packets in PCAP format.
 int seqClock = 0;
 static int pico_eth_send(struct pico_device *dev, void *buf, int len) {
     printf(">> pico_eth_send: %i\n", len);
-    uint32_t len32 = len;
-    fwrite(&len32, sizeof(int32_t), 1, driverOutput);
-    fwrite(buf, sizeof(void), len, driverOutput);
-    fflush(driverOutput);
-
     // Write the PCAP.
     pcaprec_hdr_t hdr;
     hdr.ts_sec = clock();
     hdr.ts_usec = seqClock++; // FIXME: Fix the timestamps.
     hdr.incl_len = len;
     hdr.orig_len = len; // FIXME: Should this be different?
-    fwrite(&hdr, sizeof(hdr), 1, driverOutputPCAP);
-    fwrite(buf, sizeof(void), len, driverOutputPCAP);
-    fflush(driverOutputPCAP);
+    fwrite(&hdr, sizeof(hdr), 1, driverOutput);
+    fwrite(buf, sizeof(void), len, driverOutput);
+    fflush(driverOutput);
 
     return len;
 }
 
 static char pollBuffer[BUF_SIZE];
 static uint8_t pollBufferUint8[BUF_SIZE];
+
+// Assumes ts_sec is already consumed.
+int read_pcap_hdr(FILE* f, pcaprec_hdr_t *hdr) {
+    int nread = fread(&hdr->ts_usec, sizeof(hdr->ts_sec), 1, f);
+    if(!nread) {
+        return 0;
+    }
+    nread = fread(&hdr->incl_len, sizeof(hdr->incl_len), 1, f);
+    if(!nread) {
+        return 0;
+    }
+    nread = fread(&hdr->orig_len, sizeof(hdr->orig_len), 1, f);
+    if(!nread) {
+        return 0;
+    }
+    return 1;
+}
 
 static int pico_eth_poll(struct pico_device *dev, int loop_score){
     while (loop_score > 0) {
@@ -84,12 +125,30 @@ static int pico_eth_poll(struct pico_device *dev, int loop_score){
         if(!nread) {
             break;
         }
-        fread(&pollBuffer, sizeof(void), len, driverInput);
-        for(int i = 0; i < len; i++) {
+        if(!consumedPCAP) {
+            // We first need to read the header (which we can now.)
+            consumePCAPHeader(driverInput);
+            consumedPCAP = 1;
+            nread = fread(&len, sizeof(len), 1, driverInput);
+            if(!nread)
+                break;
+        }
+
+        // Now read the pcap packet header.
+        pcaprec_hdr_t hdr;
+        hdr.ts_sec = len;
+        nread = read_pcap_hdr(driverInput, &hdr);
+        if(!nread) {
+            printf("Something went terribly wrong!\n");
+            exit(-1);
+        }
+
+        fread(&pollBuffer, sizeof(void), hdr.incl_len, driverInput);
+        for(int i = 0; i < hdr.incl_len; i++) {
             pollBufferUint8[i] = pollBuffer[i];
         }
-        printf(">> pico_eth_poll: %i\n", len);
-        pico_stack_recv(dev, pollBufferUint8, len); /* this will copy the frame into the stack */
+        printf(">> pico_eth_poll: %i\n", hdr.incl_len);
+        pico_stack_recv(dev, pollBufferUint8, hdr.incl_len); /* this will copy the frame into the stack */
         loop_score--;
     }
 
@@ -120,10 +179,6 @@ struct pico_device *pico_eth_create(const char *name, const uint8_t *mac, FILE* 
 }
 
 int main(int argc, char* argv[]){
-    /*if(argc != 4) {
-        printf("Expects at least 3 arguments: 'executable in-file out-file'\n");
-        return -1;
-    }*/
     char *inputFname = NULL;
     char *outputFname = NULL;
     char *thisIP = NULL;
@@ -167,19 +222,8 @@ int main(int argc, char* argv[]){
     struct pico_device* dev;
     pico_stack_init();
 
-    char outputFB[1024];
-    int outputLen = strlen(outputFname);
-    for(int i = 0; i < outputLen; ++i) {
-        outputFB[i] = outputFname[i];
-    }
-    for(int i = 0; i < 5; i++) {
-        outputFB[i + outputLen] = ".pcap"[i];
-    }
-    outputFB[outputLen+5] = '\0';
-
     FILE* input = fopen(inputFname, "ab+"); // The file we read from.
     FILE* output = fopen(outputFname, "ab+"); // The file we write to.
-    FILE* outputPCAP = fopen(outputFB, "ab+"); // The file we write to.
     
     if(input == NULL) {
         printf("Input file could not be opened!\n");
@@ -189,20 +233,14 @@ int main(int argc, char* argv[]){
         printf("Output file could not be opened!\n");
         return -1;
     }
-    if(outputPCAP == NULL) {
-        printf("Output PCAP file could not be opened!\n");
-        return -1;
-    }
-    driverOutputPCAP = outputPCAP; // FIXME: Move this assignment to pico_eth_create...
-    writePCAPHeader(driverOutputPCAP);    
 
     /* create the device */
     uint8_t mac = 1 + server;
     dev = pico_eth_create("mydev", &mac, input, output);
     if (!dev)
         return -1;
+    writePCAPHeader(driverOutput);
 
-    //char* remoteAddr = server ? "192.168.5.4" : "192.168.5.5";
     uint16_t listen_port = server ? 1234 : 1235;
     uint16_t remote_port = 1234;
     pico_string_to_ipv4(thisIP, &ipaddr.addr);
