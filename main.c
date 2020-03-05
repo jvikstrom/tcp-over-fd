@@ -144,7 +144,8 @@ static int pico_eth_poll(struct pico_device *dev, int loop_score){
         }
 
         fread(&pollBuffer, sizeof(void), hdr.incl_len, driverInput);
-        for(int i = 0; i < hdr.incl_len; i++) {
+        int i;
+        for(i = 0; i < hdr.incl_len; i++) {
             pollBufferUint8[i] = pollBuffer[i];
         }
         printf(">> pico_eth_poll: %i\n", hdr.incl_len);
